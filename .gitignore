@@ -1,0 +1,51 @@
+ # Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.lcov
+
+# Production
+dist/
+build/
+.next/
+out/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+ # IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+ # Turbo
+.turbo/
+
+ # Database
+*.db
+*.sqlite
+
+ # Uploads (local dev)
+uploads/
+temp/
+
+ # Redis dump
+dump.rdb

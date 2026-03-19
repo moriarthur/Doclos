@@ -1,0 +1,248 @@
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
+import * as crypto from 'crypto';
+import { Document, DocumentStatus, DocumentType } from './entities/document.entity';
+import { Invoice } from './entities/invoice.entity';
+import { FieldExtraction } from './entities/field-extraction.entity';
+import { AuditLog } from '../jobs/entities/audit-log.entity';
+import { S3Service } from '../storage/services/s3.service';
+
+// Part 3: AI Pipeline - Document processing workflow
+// Part 4: API Specification - Document upload and processing
+// Part 8: Infrastructure & Deployment - S3 storage
+
+@Injectable()
+export class DocumentsService {
+  constructor(
+    @InjectRepository(Document)
+    private documentsRepository: Repository<Document>,
+    @InjectRepository(Invoice)
+    private invoicesRepository: Repository<Invoice>,
+    @InjectRepository(FieldExtraction)
+    private fieldExtractionsRepository: Repository<FieldExtraction>,
+    @InjectRepository(AuditLog)
+    private auditLogsRepository: Repository<AuditLog>,
+    @InjectQueue('documents') private documentsQueue: Queue,
+    private s3Service: S3Service,
+  ) {}
+
+  async uploadDocument(
+    file: Express.Multer.File,
+    userId: string,
+    metadata?: { type?: DocumentType },
+  ) {
+    // Validate file size (10MB max)
+    const maxSize = parseInt(process.env.MAX_FILE_SIZE || '10485760', 10);
+    if (file.size > maxSize) {
+      throw new BadRequestException('File too large');
+    }
+
+    // Validate file type
+    const allowedTypes = (process.env.ALLOWED_FILE_TYPES || 'application/pdf,image/png,image/jpeg,image/tiff').split(',');
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Invalid file type');
+    }
+
+    // Generate S3 key
+    const date = new Date();
+    const s3Key = `uploads/${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}/${crypto.randomUUID()}-${file.originalname}`;
+
+    // Upload to S3
+    await this.s3Service.uploadFile(s3Key, file.buffer, file.mimetype);
+
+    // Create document record
+    const document = this.documentsRepository.create({
+      user_id: userId,
+      type: metadata?.type || DocumentType.UNKNOWN,
+      status: DocumentStatus.UPLOADED,
+      original_filename: file.originalname,
+      s3_key: s3Key,
+      mime_type: file.mimetype,
+      file_size: file.size,
+      page_count: undefined, // Will be determined during processing
+    });
+    await this.documentsRepository.save(document);
+
+    // Add to processing queue
+    await this.documentsQueue.add('process-document', {
+      documentId: document.id,
+      userId,
+    });
+
+    return {
+      document_id: document.id,
+      status: document.status,
+    };
+  }
+
+  async listDocuments(
+    userId: string,
+    query: { page?: number; limit?: number; status?: DocumentStatus; company?: string; from_date?: Date; to_date?: Date },
+  ) {
+    const page = query.page || 1;
+    const limit = Math.min(query.limit || 20, 100);
+    const skip = (page - 1) * limit;
+
+    const qb = this.documentsRepository
+      .createQueryBuilder('document')
+      .leftJoinAndSelect('document.customer', 'customer')
+      .leftJoinAndSelect('document.invoice', 'invoice')
+      .where('document.user_id = :userId', { userId });
+
+    if (query.status) {
+      qb.andWhere('document.status = :status', { status: query.status });
+    }
+
+    if (query.company) {
+      qb.andWhere('customer.name ILIKE :company', { company: `%${query.company}%` });
+    }
+
+    if (query.from_date) {
+      qb.andWhere('document.created_at >= :fromDate', { fromDate: query.from_date });
+    }
+
+    if (query.to_date) {
+      qb.andWhere('document.created_at <= :toDate', { toDate: query.to_date });
+    }
+
+    const [documents, total] = await qb
+      .orderBy('document.created_at', 'DESC')
+      .skip(skip)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      data: documents.map((doc) => ({
+        id: doc.id,
+        type: doc.type,
+        status: doc.status,
+        company_name: doc.customer?.name,
+        amount: doc.invoice?.amount_total,
+        currency: doc.invoice?.currency,
+        invoice_date: doc.invoice?.invoice_date,
+        created_at: doc.created_at,
+      })),
+      pagination: {
+        page,
+        limit,
+        total,
+      },
+    };
+  }
+
+  async getDocument(documentId: string, userId: string) {
+    const document = await this.documentsRepository.findOne({
+      where: { id: documentId, user_id: userId },
+      relations: ['invoice', 'customer'],
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    // Get signed URL from S3 (Part 7: Security & GDPR - Signed URLs expire after 24h)
+    const fileUrl = await this.s3Service.getSignedUrl(document.s3_key);
+
+    // Get field extractions for confidence info
+    const extractions = await this.fieldExtractionsRepository.find({
+      where: { document_id: documentId },
+    });
+
+    const extractionMap = extractions.reduce((acc, ext) => {
+      acc[ext.field_name] = { value: ext.value, confidence: ext.confidence };
+      return acc;
+    }, {} as Record<string, { value: string; confidence: number }>);
+
+    return {
+      id: document.id,
+      status: document.status,
+      file_url: fileUrl,
+      invoice: document.invoice
+        ? {
+            invoice_number: extractionMap['invoice_number'],
+            amount_total: extractionMap['amount_total'],
+            currency: document.invoice.currency,
+            invoice_date: document.invoice.invoice_date?.toISOString().split('T')[0],
+            due_date: document.invoice.due_date?.toISOString().split('T')[0],
+            supplier_name: extractionMap['supplier_name'],
+            supplier_address: extractionMap['supplier_address'],
+          }
+        : undefined,
+    };
+  }
+
+  async validateDocument(documentId: string, userId: string, fields: Record<string, unknown>) {
+    const document = await this.documentsRepository.findOne({
+      where: { id: documentId, user_id: userId },
+      relations: ['invoice'],
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    // Store old values for audit log
+    const oldValues: Record<string, unknown> = {};
+    if (document.invoice) {
+      oldValues.invoice_number = document.invoice.invoice_number;
+      oldValues.amount_total = document.invoice.amount_total;
+      oldValues.invoice_date = document.invoice.invoice_date;
+    }
+
+    // Update invoice with new values
+    if (document.invoice) {
+      if (fields.invoice_number) document.invoice.invoice_number = String(fields.invoice_number);
+      if (fields.amount_total) document.invoice.amount_total = Number(fields.amount_total);
+      if (fields.invoice_date) {
+        document.invoice.invoice_date = new Date(String(fields.invoice_date));
+      }
+      if (fields.due_date) {
+        document.invoice.due_date = new Date(String(fields.due_date));
+      }
+      document.invoice.validated = true;
+      await this.invoicesRepository.save(document.invoice);
+    }
+
+    // Update document status
+    document.status = DocumentStatus.VALIDATED;
+    document.processed_at = new Date();
+    await this.documentsRepository.save(document);
+
+    // Write audit log (Part 7: Security & GDPR)
+    await this.auditLogsRepository.save({
+      entity_type: 'document',
+      entity_id: documentId,
+      user_id: userId,
+      action: 'validate',
+      old_value: oldValues,
+      new_value: fields,
+    });
+
+    return { status: document.status };
+  }
+
+  async reprocessDocument(documentId: string, userId: string) {
+    const document = await this.documentsRepository.findOne({
+      where: { id: documentId, user_id: userId },
+    });
+
+    if (!document) {
+      throw new NotFoundException('Document not found');
+    }
+
+    // Reset status
+    document.status = DocumentStatus.PROCESSING;
+    await this.documentsRepository.save(document);
+
+    // Add to processing queue
+    await this.documentsQueue.add('reprocess-document', {
+      documentId,
+      userId,
+    });
+
+    return { status: document.status };
+  }
+}

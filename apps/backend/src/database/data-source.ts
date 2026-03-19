@@ -1,0 +1,46 @@
+// Part 2: Data Model - Database configuration with TypeORM
+import { DataSource, DataSourceOptions } from 'typeorm';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+import * as fs from 'fs';
+
+// Load .env file early for TypeORM configuration
+// From dist/apps/backend/database, we need to go up 4 levels to reach project root
+// From src/apps/backend/database during dev, we need to go up 3 levels
+const possibleEnvPaths = [
+  path.join(__dirname, '../../../.env'), // From src during dev
+  path.join(__dirname, '../../../../.env'), // From dist during build
+  path.join(process.cwd(), '../../.env'), // Relative to working directory
+];
+
+for (const envPath of possibleEnvPaths) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    break;
+  }
+}
+
+// Parse DATABASE_URL to get individual components
+const databaseUrl = process.env.DATABASE_URL || '';
+const urlMatch = databaseUrl.match(/postgres:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/);
+let host, port, username, password, database;
+
+if (urlMatch) {
+  [, username, password, host, port, database] = urlMatch;
+}
+
+export const dataSourceOptions: DataSourceOptions = {
+  type: 'postgres',
+  host: host || process.env.DB_HOST,
+  port: port ? parseInt(port, 10) : (process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 5432),
+  username: username || process.env.DB_USERNAME,
+  password: password || process.env.DB_PASSWORD,
+  database: database || process.env.DB_NAME,
+  entities: [__dirname + '/**/*.entity{.ts,.js}'],
+  migrations: [__dirname + '/database/migrations/*{.ts,.js}'],
+  synchronize: process.env.NODE_ENV !== 'production', // Use migrations in production
+  logging: process.env.NODE_ENV === 'development',
+};
+
+// Default data source for CLI commands
+export default new DataSource(dataSourceOptions);

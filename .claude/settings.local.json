@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__plugin_serena_serena__get_current_config",
+      "mcp__plugin_serena_serena__activate_project",
+      "mcp__plugin_serena_serena__check_onboarding_performed",
+      "mcp__plugin_serena_serena__list_dir",
+      "mcp__plugin_serena_serena__read_file",
+      "mcp__plugin_serena_serena__onboarding",
+      "mcp__plugin_serena_serena__write_memory",
+      "mcp__plugin_serena_serena__create_text_file",
+      "mcp__plugin_serena_serena__replace_content",
+      "Bash(which pnpm:*)",
+      "Bash(which docker:*)",
+      "Bash(pnpm install:*)",
+      "Bash(cd /Users/unlxud/Projects/Doclos/apps/backend && npx tsc --noEmit 2>&1 | head -30)",
+      "Bash(pnpm add:*)",
+      "Bash(npx nest:*)",
+      "Bash(cd apps/backend && pnpm run build 2>&1 | tail -30)",
+      "Bash(pnpm run:*)",
+      "Bash(pnpm exec:*)",
+      "Bash(cat .env | sed 's/S3_SECRET_ACCESS_KEY=\\\\[.*\\\\]/S3_SECRET_ACCESS_KEY=\"***REMOVED***\"/' > .env.tmp && mv .env.tmp .env && echo \"Fixed!\" && grep \"S3_SECRET_ACCESS_KEY\" .env)",
+      "Bash(node -e \"const dotenv = require\\('dotenv'\\); const result = dotenv.config\\({ path: '../../.env' }\\); console.log\\('DATABASE_URL:', process.env.DATABASE_URL ? 'SET' : 'NOT SET'\\); console.log\\('DB_HOST:', process.env.DB_HOST ? 'SET' : 'NOT SET'\\);\")",
+      "Bash(node -e \"const dotenv = require\\('dotenv'\\); const path = require\\('path'\\); const envPath = path.join\\('apps/backend/src', '../../.env'\\); dotenv.config\\({ path: envPath }\\); const url = process.env.DATABASE_URL; console.log\\('DATABASE_URL:', url\\); const match = url.match\\(/postgres:\\\\/\\\\/\\([^:]+\\):\\([^@]+\\)@\\([^:]+\\):\\(\\\\d+\\)\\\\/\\(.+\\)/\\); if \\(match\\) { console.log\\('Parsed - host:', match[3], 'port:', match[4], 'database:', match[5]\\); }\")",
+      "Bash(node -e \"const dotenv = require\\('dotenv'\\); dotenv.config\\({ path: '.env' }\\); const url = process.env.DATABASE_URL; console.log\\('DATABASE_URL:', url\\); const match = url.match\\(/postgres:\\\\/\\\\/\\([^:]+\\):\\([^@]+\\)@\\([^:]+\\):\\(\\\\d+\\)\\\\/\\(.+\\)/\\); if \\(match\\) { console.log\\('Parsed - host:', match[3], 'port:', match[4], 'database:', match[5]\\); }\")",
+      "Bash(curl -s http://localhost:3001/api/v1 2>&1 || echo \"Server might be starting...\")",
+      "Bash(sleep 10 && curl -s http://localhost:3001/api/v1 2>&1 || echo \"Waiting for server...\")",
+      "Bash(git add:*)"
+    ]
+  }
+}
