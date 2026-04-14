@@ -11,16 +11,10 @@ import { formatDate, formatCurrency, getStatusLabel } from '@/lib/utils';
 import {
   FileText,
   Search,
-  Filter,
-  Plus,
-  ChevronRight,
-  Calendar,
-  Euro,
-  Sparkles,
-  Loader2,
   Archive,
+  ArchiveRestore,
+  Loader2,
   Trash2,
-  MoreVertical,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
@@ -35,11 +29,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/AlertDialog';
 
-export default function DashboardPage() {
+export default function ArchivePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [deleteDialog, setDeleteDialog] = useState<string | null>(null);
 
@@ -57,35 +50,14 @@ export default function DashboardPage() {
     return () => clearTimeout(timer);
   }, [router]);
 
-  const { data: documents, isLoading, error } = useQuery({
-    queryKey: ['documents', statusFilter],
-    queryFn: () => {
-      // Exclude archived documents from default view
-      if (statusFilter === 'archived') {
-        return documentsApi.list({ status: 'archived' });
-      }
-      if (statusFilter) {
-        return documentsApi.list({ status: statusFilter });
-      }
-      // Default: show all except archived
-      return documentsApi.list({ status: undefined });
-    },
-    enabled: !isCheckingAuth, // Only fetch after auth check
+  const { data: documents, isLoading } = useQuery({
+    queryKey: ['documents', 'archived'],
+    queryFn: () => documentsApi.list({ status: 'archived' }),
+    enabled: !isCheckingAuth,
   });
 
-  const filteredDocuments = documents?.data
-    .filter((doc) => {
-      // Exclude archived documents from default view
-      if (!statusFilter && doc.status === 'archived') return false;
-      return true;
-    })
-    .filter((doc) =>
-      doc.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      doc.id.toLowerCase().includes(searchQuery.toLowerCase())
-    ) || [];
-
-  const archiveMutation = useMutation({
-    mutationFn: (id: string) => documentsApi.updateStatus(id, 'archived'),
+  const unarchiveMutation = useMutation({
+    mutationFn: (id: string) => documentsApi.unarchive(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['documents'] });
     },
@@ -99,10 +71,10 @@ export default function DashboardPage() {
     },
   });
 
-  const handleArchive = (id: string, e: React.MouseEvent) => {
+  const handleUnarchive = (id: string, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    archiveMutation.mutate(id);
+    unarchiveMutation.mutate(id);
   };
 
   const handleDelete = (id: string, e: React.MouseEvent) => {
@@ -114,6 +86,11 @@ export default function DashboardPage() {
   const confirmDelete = (id: string) => {
     deleteMutation.mutate(id);
   };
+
+  const filteredDocuments = documents?.data.filter((doc) =>
+    doc.company_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    doc.id.toLowerCase().includes(searchQuery.toLowerCase())
+  ) || [];
 
   // Show loading overlay while checking auth
   if (isCheckingAuth) {
@@ -135,59 +112,30 @@ export default function DashboardPage() {
 
         <div className="p-6 md:p-10 max-w-7xl mx-auto">
           {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-6 mb-10 animate-fade-in">
-            <div>
-              <p className="text-sm text-muted-foreground uppercase tracking-wide mb-2">
-                Dashboard
-              </p>
-              <h1 className="font-serif text-4xl md:text-5xl font-bold text-brand">
-                Dokumente
-              </h1>
-              <p className="text-muted-foreground mt-2 max-w-md leading-relaxed">
-                Verwalten und validieren Sie Ihre Rechnungen mit KI-gestützter Extraktion
-              </p>
-            </div>
-
-            <Link href="/upload">
-              <Button className="gap-2 shadow-sm">
-                <Plus className="h-4 w-4" />
-                Hochladen
-              </Button>
-            </Link>
+          <div className="mb-10 animate-fade-in">
+            <p className="text-sm text-muted-foreground uppercase tracking-wide mb-2">
+              Archiv
+            </p>
+            <h1 className="font-serif text-4xl md:text-5xl font-bold text-brand mb-3">
+              Archivierte Dokumente
+            </h1>
+            <p className="text-muted-foreground max-w-md leading-relaxed">
+              Hier finden Sie alle archivierten Dokumente. Sie können Dokumente wiederherstellen oder dauerhaft löschen.
+            </p>
           </div>
 
-          {/* Search and Filters */}
+          {/* Search */}
           <Card className="mb-8 animate-scale-in">
             <CardContent className="p-5">
-              <div className="flex flex-col sm:flex-row gap-4">
-                {/* Search */}
-                <div className="flex-1 relative">
-                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <input
-                    type="text"
-                    placeholder="Dokumente durchsuchen..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-11 pr-4 py-2.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
-                  />
-                </div>
-
-                {/* Status Filter */}
-                <div className="relative">
-                  <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="pl-11 pr-10 py-2.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary appearance-none cursor-pointer transition-all"
-                  >
-                    <option value="">Alle Status</option>
-                    <option value="uploaded">Hochgeladen</option>
-                    <option value="processing">Verarbeitung</option>
-                    <option value="parsed">Verarbeitet</option>
-                    <option value="needs_validation">Prüfung erforderlich</option>
-                    <option value="validated">Validiert</option>
-                  </select>
-                </div>
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Archiv durchsuchen..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-11 pr-4 py-2.5 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                />
               </div>
             </CardContent>
           </Card>
@@ -204,54 +152,41 @@ export default function DashboardPage() {
                 </Card>
               ))}
             </div>
-          ) : error ? (
-            <Card>
-              <CardContent className="p-16 text-center">
-                <FileText className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-                <p className="text-muted-foreground">Fehler beim Laden der Dokumente</p>
-              </CardContent>
-            </Card>
           ) : filteredDocuments.length === 0 ? (
             <Card className="animate-scale-in">
               <CardContent className="p-16 text-center">
                 <div className="h-20 w-20 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-6">
-                  <FileText className="h-10 w-10 text-muted-foreground" />
+                  <Archive className="h-10 w-10 text-muted-foreground" />
                 </div>
                 <h3 className="font-serif text-xl font-semibold mb-3">
-                  {searchQuery || statusFilter ? 'Keine Ergebnisse' : 'Noch keine Dokumente'}
+                  {searchQuery ? 'Keine Ergebnisse' : 'Archiv leer'}
                 </h3>
-                <p className="text-muted-foreground mb-8 max-w-sm mx-auto leading-relaxed">
-                  {searchQuery || statusFilter
-                    ? 'Keine Dokumente gefunden, die Ihren Kriterien entsprechen.'
-                    : 'Laden Sie Ihre erste Rechnung hoch, um zu beginnen.'}
+                <p className="text-muted-foreground max-w-sm mx-auto leading-relaxed">
+                  {searchQuery
+                    ? 'Keine archivierten Dokumente gefunden, die Ihren Kriterien entsprechen.'
+                    : 'Sie haben noch keine Dokumente archiviert.'}
                 </p>
-                {!searchQuery && !statusFilter && (
-                  <Link href="/upload">
-                    <Button className="gap-2">
-                      <Sparkles className="h-4 w-4" />
-                      Erste Rechnung hochladen
-                    </Button>
-                  </Link>
-                )}
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-3">
               {filteredDocuments.map((doc, index) => (
-                <Link
+                <div
                   key={doc.id}
-                  href={`/documents/${doc.id}`}
-                  className="block animate-slide-up group"
+                  className="animate-slide-up group"
                   style={{ animationDelay: `${index * 75}ms` }}
                 >
-                  <Card className="hover:shadow-lg transition-all duration-300 cursor-pointer">
+                  <Card className="hover:shadow-lg transition-all duration-300">
                     <CardContent className="p-5">
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <Link
+                          href={`/documents/${doc.id}`}
+                          className="flex items-center gap-4 flex-1 min-w-0"
+                        >
                           {/* Icon */}
                           <div className="flex-shrink-0">
-                            <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                              <FileText className="h-6 w-6 text-primary" />
+                            <div className="h-12 w-12 rounded-xl bg-muted/50 flex items-center justify-center group-hover:bg-muted transition-colors">
+                              <Archive className="h-6 w-6 text-muted-foreground" />
                             </div>
                           </div>
 
@@ -261,7 +196,7 @@ export default function DashboardPage() {
                               <span className="font-serif font-medium text-foreground truncate">
                                 {doc.company_name || 'Unbekannter Anbieter'}
                               </span>
-                              <Badge variant={doc.status as any} className="shrink-0">
+                              <Badge variant="archived" className="shrink-0">
                                 {getStatusLabel(doc.status)}
                               </Badge>
                             </div>
@@ -269,13 +204,11 @@ export default function DashboardPage() {
                             <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                               {doc.invoice_date && (
                                 <span className="flex items-center gap-1.5">
-                                  <Calendar className="h-4 w-4" />
                                   {formatDate(doc.invoice_date)}
                                 </span>
                               )}
                               {doc.amount && (
                                 <span className="flex items-center gap-1.5 font-medium">
-                                  <Euro className="h-4 w-4" />
                                   {formatCurrency(doc.amount, doc.currency)}
                                 </span>
                               )}
@@ -284,19 +217,19 @@ export default function DashboardPage() {
                               </span>
                             </div>
                           </div>
-                        </div>
+                        </Link>
 
                         {/* Actions */}
-                        <div className="flex items-center gap-1 ml-4">
+                        <div className="flex items-center gap-2 ml-4">
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={(e) => handleArchive(doc.id, e)}
-                            disabled={archiveMutation.isPending}
+                            onClick={(e) => handleUnarchive(doc.id, e)}
+                            disabled={unarchiveMutation.isPending}
                             className="gap-1.5"
-                            title="Archivieren"
                           >
-                            <Archive className="h-4 w-4" />
+                            <ArchiveRestore className="h-4 w-4" />
+                            <span className="hidden sm:inline">Wiederherstellen</span>
                           </Button>
                           <Button
                             size="sm"
@@ -304,16 +237,15 @@ export default function DashboardPage() {
                             onClick={(e) => handleDelete(doc.id, e)}
                             disabled={deleteMutation.isPending}
                             className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
-                            title="Löschen"
                           >
                             <Trash2 className="h-4 w-4" />
+                            <span className="hidden sm:inline">Löschen</span>
                           </Button>
-                          <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-foreground group-hover:translate-x-1 transition-all flex-shrink-0" />
                         </div>
                       </div>
                     </CardContent>
                   </Card>
-                </Link>
+                </div>
               ))}
             </div>
           )}
